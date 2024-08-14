@@ -3,7 +3,14 @@ use std::sync::OnceLock;
 use ::util::ResultExt;
 use windows::{
     Wdk::System::SystemServices::RtlGetVersion,
-    Win32::{Foundation::*, UI::WindowsAndMessaging::*},
+    Win32::{
+        Foundation::*,
+        Graphics::Dwm::{
+            DwmGetWindowAttribute, DWMSBT_MAINWINDOW, DWMSBT_TRANSIENTWINDOW,
+            DWMWA_SYSTEMBACKDROP_TYPE, DWM_SYSTEMBACKDROP_TYPE,
+        },
+        UI::WindowsAndMessaging::*,
+    },
     UI::{
         Color,
         ViewManagement::{UIColorType, UISettings},
@@ -149,16 +156,31 @@ pub(crate) fn logical_point(x: f32, y: f32, scale_factor: f32) -> Point<Pixels> 
 
 // https://learn.microsoft.com/en-us/windows/apps/desktop/modernize/apply-windows-themes
 #[inline]
-pub(crate) fn system_appearance() -> Result<WindowAppearance> {
+pub(crate) fn system_appearance(hwnd: HWND) -> Result<WindowAppearance> {
+    let is_vibrant = unsafe {
+        let mut backdrop_type = DWM_SYSTEMBACKDROP_TYPE::default();
+        DwmGetWindowAttribute(
+            hwnd,
+            DWMWA_SYSTEMBACKDROP_TYPE,
+            &mut backdrop_type as *mut _ as *mut _,
+            std::mem::size_of::<DWM_SYSTEMBACKDROP_TYPE>() as u32,
+        )?;
+
+        backdrop_type.0 == DWMSBT_MAINWINDOW.0 || backdrop_type.0 == DWMSBT_TRANSIENTWINDOW.0
+    };
+
     let ui_settings = UISettings::new()?;
     let foreground_color = ui_settings.GetColorValue(UIColorType::Foreground)?;
     // If the foreground is light, then is_color_light will evaluate to true,
     // meaning Dark mode is enabled.
-    if is_color_light(&foreground_color) {
-        Ok(WindowAppearance::Dark)
-    } else {
-        Ok(WindowAppearance::Light)
-    }
+    let color_is_light = is_color_light(&foreground_color);
+
+    Ok(match (color_is_light, is_vibrant) {
+        (true, true) => WindowAppearance::VibrantLight,
+        (true, false) => WindowAppearance::Light,
+        (false, true) => WindowAppearance::VibrantDark,
+        (false, false) => WindowAppearance::Dark,
+    })
 }
 
 #[inline(always)]

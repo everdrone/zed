@@ -342,7 +342,10 @@ impl Platform for WindowsPlatform {
     }
 
     fn window_appearance(&self) -> WindowAppearance {
-        system_appearance().log_err().unwrap_or_default()
+        let active_window_hwnd = unsafe { GetActiveWindow() };
+        system_appearance(active_window_hwnd)
+            .log_err()
+            .unwrap_or_default()
     }
 
     fn open_url(&self, url: &str) {

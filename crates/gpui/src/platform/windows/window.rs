@@ -20,7 +20,13 @@ use windows::{
     core::*,
     Win32::{
         Foundation::*,
-        Graphics::Gdi::*,
+        Graphics::{
+            Dwm::{
+                DwmSetWindowAttribute, DWMSBT_AUTO, DWMSBT_MAINWINDOW, DWMWA_SYSTEMBACKDROP_TYPE,
+                DWM_SYSTEMBACKDROP_TYPE,
+            },
+            Gdi::*,
+        },
         System::{Com::*, LibraryLoader::*, Ole::*, SystemServices::*},
         UI::{Controls::*, HiDpi::*, Input::KeyboardAndMouse::*, Shell::*, WindowsAndMessaging::*},
     },
@@ -415,7 +421,7 @@ impl PlatformWindow for WindowsWindow {
     }
 
     fn appearance(&self) -> WindowAppearance {
-        system_appearance().log_err().unwrap_or_default()
+        system_appearance(self.0.hwnd).log_err().unwrap_or_default()
     }
 
     fn display(&self) -> Option<Rc<dyn PlatformDisplay>> {
@@ -551,6 +557,32 @@ impl PlatformWindow for WindowsWindow {
             .borrow_mut()
             .renderer
             .update_transparency(background_appearance != WindowBackgroundAppearance::Opaque);
+
+        match background_appearance {
+            WindowBackgroundAppearance::Transparent => {
+                log::error!("Window transparency is unsupported");
+            }
+            _ => {
+                let backdrop_type = if background_appearance == WindowBackgroundAppearance::Blurred
+                {
+                    DWMSBT_MAINWINDOW.0
+                } else {
+                    DWMSBT_AUTO.0
+                };
+
+                unsafe {
+                    match DwmSetWindowAttribute(
+                        self.0.hwnd,
+                        DWMWA_SYSTEMBACKDROP_TYPE,
+                        &(backdrop_type as i32) as *const _ as _,
+                        std::mem::size_of::<DWM_SYSTEMBACKDROP_TYPE>() as _,
+                    ) {
+                        Err(err) => log::error!("Unable to set window background {}", err),
+                        _ => {}
+                    }
+                }
+            }
+        }
     }
 
     fn minimize(&self) {
